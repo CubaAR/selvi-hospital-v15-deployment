@@ -1,0 +1,82 @@
+services:
+  create-site:
+    image: ${CUSTOM_IMAGE:-frappe/erpnext}:${CUSTOM_TAG:-$ERPNEXT_VERSION}
+    platform: linux/amd64
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+    environment:
+      SITE_NAME: ${FRAPPE_SITE_NAME_HEADER:-selvi.localhost}
+      DB_HOST: ${DB_HOST:-db}
+      DB_PORT: ${DB_PORT:-3306}
+      DB_PASSWORD: ${DB_PASSWORD:-123}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+    entrypoint:
+      - bash
+      - -c
+    command:
+      - |
+        set -e
+
+        if [ -f "sites/$$SITE_NAME/site_config.json" ]; then
+          echo "Site $$SITE_NAME already exists. Skipping site creation."
+          exit 0
+        fi
+
+        echo "Creating site: $$SITE_NAME"
+
+        bench new-site "$$SITE_NAME" \
+          --db-root-username root \
+          --db-root-password "$$DB_PASSWORD" \
+          --db-host "$$DB_HOST" \
+          --db-port "$$DB_PORT" \
+          --mariadb-user-host-login-scope "%" \
+          --admin-password "$$ADMIN_PASSWORD"
+
+        echo "Installing ERPNext..."
+        bench --site "$$SITE_NAME" install-app erpnext
+
+        echo "Installing Healthcare..."
+        bench --site "$$SITE_NAME" install-app healthcare
+
+        echo "Installing Payments..."
+        bench --site "$$SITE_NAME" install-app payments
+
+        echo "Installing Print Designer..."
+        bench --site "$$SITE_NAME" install-app print_designer
+
+        echo "Enabling scheduler..."
+        bench --site "$$SITE_NAME" enable-scheduler
+
+        echo "Site provisioning completed successfully."
+
+    restart: "no"
+
+  backend:
+    depends_on:
+      create-site:
+        condition: service_completed_successfully
+
+  websocket:
+    depends_on:
+      create-site:
+        condition: service_completed_successfully
+
+  queue-short:
+    depends_on:
+      create-site:
+        condition: service_completed_successfully
+
+  queue-long:
+    depends_on:
+      create-site:
+        condition: service_completed_successfully
+
+  scheduler:
+    depends_on:
+      create-site:
+        condition: service_completed_successfully
